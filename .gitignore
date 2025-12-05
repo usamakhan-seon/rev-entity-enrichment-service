@@ -30,3 +30,7 @@ Thumbs.db
 dist/
 build/
 
+# Serverless Framework
+.serverless/
+.webpack/
+

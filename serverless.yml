@@ -1,0 +1,32 @@
+service: rev-entity-enrichment-service
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  region: us-east-1  # Change to your preferred region
+  stage: ${opt:stage, 'dev'}
+  memorySize: 512
+  timeout: 30
+  environment:
+    OPEN_CORPORATES_URL: ${env:OPEN_CORPORATES_URL}
+    OPEN_CORPORATES_KEY: ${env:OPEN_CORPORATES_KEY}
+    NODE_ENV: production
+  httpApi:
+    cors: true
+
+functions:
+  api:
+    handler: lambda.handler
+    events:
+      - httpApi:
+          path: /{proxy+}
+          method: ANY
+      - httpApi:
+          path: /
+          method: ANY
+
+plugins:
+  - serverless-offline
+

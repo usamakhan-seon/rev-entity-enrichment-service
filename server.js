@@ -12,139 +12,60 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// In-memory data store (replace with database in production)
-let users = [
-  { id: 1, name: 'John Doe', email: 'john@example.com' },
-  { id: 2, name: 'Jane Smith', email: 'jane@example.com' }
-];
-
-let posts = [
-  { id: 1, title: 'First Post', content: 'This is the first post', authorId: 1 },
-  { id: 2, title: 'Second Post', content: 'This is the second post', authorId: 2 }
-];
-
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'OK',
-    message: 'Server is running',
-    timestamp: new Date().toISOString()
-  });
-});
-
-// GET endpoint - Get all users
-app.get('/api/users', (req, res) => {
-  res.json({
-    success: true,
-    count: users.length,
-    data: users
-  });
-});
-
-// GET endpoint - Get user by ID
-app.get('/api/users/:id', (req, res) => {
-  const userId = parseInt(req.params.id);
-  const user = users.find(u => u.id === userId);
+// Helper function to build query parameters for OpenCorporates API
+function buildOpenCorporatesParams(userQuery, apiToken) {
+  const params = new URLSearchParams();
   
-  if (!user) {
-    return res.status(404).json({
-      success: false,
-      message: 'User not found'
-    });
+  // Add all user-provided query parameters
+  for (const [key, value] of Object.entries(userQuery)) {
+    if (value !== undefined && value !== null && value !== '') {
+      params.append(key, value);
+    }
   }
   
-  res.json({
-    success: true,
-    data: user
-  });
-});
-
-// POST endpoint - Create a new user
-app.post('/api/users', (req, res) => {
-  const { name, email } = req.body;
+  // Always add API token (will override if user somehow provided it)
+  params.set('api_token', apiToken);
   
-  if (!name || !email) {
-    return res.status(400).json({
-      success: false,
-      message: 'Name and email are required'
-    });
+  return params;
+}
+
+// Helper function to recursively remove opencorporates_url from objects and arrays (mutates in-place for performance)
+function removeOpenCorporatesUrl(data) {
+  if (data === null || data === undefined) {
+    return data;
   }
   
-  const newUser = {
-    id: users.length + 1,
-    name,
-    email
-  };
-  
-  users.push(newUser);
-  
-  res.status(201).json({
-    success: true,
-    message: 'User created successfully',
-    data: newUser
-  });
-});
-
-// GET endpoint - Get all posts
-app.get('/api/posts', (req, res) => {
-  res.json({
-    success: true,
-    count: posts.length,
-    data: posts
-  });
-});
-
-// PUT endpoint - Update a post
-app.put('/api/posts/:id', (req, res) => {
-  const postId = parseInt(req.params.id);
-  const { title, content } = req.body;
-  
-  const postIndex = posts.findIndex(p => p.id === postId);
-  
-  if (postIndex === -1) {
-    return res.status(404).json({
-      success: false,
-      message: 'Post not found'
-    });
+  // Handle arrays - process each element
+  if (Array.isArray(data)) {
+    for (let i = 0; i < data.length; i++) {
+      data[i] = removeOpenCorporatesUrl(data[i]);
+    }
+    return data;
   }
   
-  if (title) posts[postIndex].title = title;
-  if (content) posts[postIndex].content = content;
-  
-  res.json({
-    success: true,
-    message: 'Post updated successfully',
-    data: posts[postIndex]
-  });
-});
-
-// DELETE endpoint - Delete a user
-app.delete('/api/users/:id', (req, res) => {
-  const userId = parseInt(req.params.id);
-  const userIndex = users.findIndex(u => u.id === userId);
-  
-  if (userIndex === -1) {
-    return res.status(404).json({
-      success: false,
-      message: 'User not found'
-    });
+  // Handle objects - mutate in-place for better performance
+  if (typeof data === 'object') {
+    // Delete opencorporates_url if it exists
+    if ('opencorporates_url' in data) {
+      delete data.opencorporates_url;
+    }
+    // Recursively process all properties
+    for (const key in data) {
+      if (data.hasOwnProperty(key)) {
+        data[key] = removeOpenCorporatesUrl(data[key]);
+      }
+    }
+    return data;
   }
   
-  const deletedUser = users.splice(userIndex, 1)[0];
-  
-  res.json({
-    success: true,
-    message: 'User deleted successfully',
-    data: deletedUser
-  });
-});
+  // Return primitive values as-is
+  return data;
+}
 
 // GET endpoint - Search companies using OpenCorporates API
 app.get('/api/companies/search', (req, res) => {
-  const { q } = req.query;
-  
   // Validate required parameters
-  if (!q) {
+  if (!req.query.q) {
     return res.status(400).json({
       success: false,
       message: 'Missing required parameter: q (query) is required'
@@ -158,15 +79,12 @@ app.get('/api/companies/search', (req, res) => {
   if (!apiToken) {
     return res.status(500).json({
       success: false,
-      message: 'OpenCorporates API token not configured. Please set OPEN_CORPORATES_KEY in .env file'
+      message: 'API token not configured. Please set OPEN_CORPORATES_KEY in .env file'
     });
   }
   
-  // Build the path with query parameters
-  const params = new URLSearchParams({
-    q: q,
-    api_token: apiToken
-  });
+  // Build query parameters - pass through all user query params
+  const params = buildOpenCorporatesParams(req.query, apiToken);
   const path = `/v0.4/companies/search?${params.toString()}`;
   
   // Parse the base URL to get hostname
@@ -197,20 +115,23 @@ app.get('/api/companies/search', (req, res) => {
       try {
         const payload = JSON.parse(data);
         
-        // Use JSONPath to extract companies
+        // Remove opencorporates_url from entire payload once (before extraction for efficiency)
+        removeOpenCorporatesUrl(payload);
+        
+        // Use JSONPath to extract companies (now from cleaned payload)
         const companies = jp.query(payload, '$.results.companies..company');
         
         res.json({
           success: true,
           count: companies.length,
           data: companies,
-          query: q
+          query: req.query.q
         });
       } catch (error) {
-        console.error('Error parsing OpenCorporates response:', error);
+        console.error('Error parsing response:', error);
         res.status(500).json({
           success: false,
-          message: 'Error processing OpenCorporates API response',
+          message: 'Error processing API response',
           error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
       }
@@ -219,10 +140,10 @@ app.get('/api/companies/search', (req, res) => {
   
   // Handle request errors
   ocRequest.on('error', (error) => {
-    console.error('Error making request to OpenCorporates API:', error);
+    console.error('Error making request to API:', error);
     res.status(500).json({
       success: false,
-      message: 'Error connecting to OpenCorporates API',
+      message: 'Error connecting to API',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   });
@@ -250,12 +171,217 @@ app.get('/api/companies/:jurisdiction_code/:company_number', (req, res) => {
   if (!apiToken) {
     return res.status(500).json({
       success: false,
-      message: 'OpenCorporates API token not configured. Please set OPEN_CORPORATES_KEY in .env file'
+      message: 'API token not configured. Please set OPEN_CORPORATES_KEY in .env file'
     });
   }
   
-  // Build the path with path parameters and API token
-  const path = `/v0.4/companies/${jurisdiction_code}/${company_number}?api_token=${apiToken}`;
+  // Build query parameters - pass through all user query params
+  const params = buildOpenCorporatesParams(req.query, apiToken);
+  const path = `/v0.4/companies/${jurisdiction_code}/${company_number}?${params.toString()}`;
+  
+  // Parse the base URL to get hostname
+  const urlObj = new URL(apiUrl);
+  
+  // Set up HTTPS request options
+  const options = {
+    hostname: urlObj.hostname,
+    port: urlObj.port || 443,
+    path: path,
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  };
+  
+  // Make the request to API
+  const ocRequest = https.request(options, (ocResponse) => {
+    let data = '';
+    
+    // Collect response data
+    ocResponse.on('data', (chunk) => {
+      data += chunk;
+    });
+    
+    // Process response when complete
+    ocResponse.on('end', () => {
+      try {
+        const payload = JSON.parse(data);
+        
+        // Check if the response indicates an error
+        if (ocResponse.statusCode !== 200) {
+          return res.status(ocResponse.statusCode).json({
+            success: false,
+            message: 'Error from API',
+            data: payload
+          });
+        }
+        
+        // Remove opencorporates_url from entire payload once (before extraction for efficiency)
+        removeOpenCorporatesUrl(payload);
+        
+        // Extract company details using JSONPath (now from cleaned payload)
+        const company = jp.query(payload, '$.results.company');
+        const officers = jp.query(payload, '$.results.company.officers..officer') || [];
+        const beneficialOwners = jp.query(payload, '$.results.company.ultimate_beneficial_owners..ultimate_beneficial_owner') || [];
+        const filings = jp.query(payload, '$.results.company.filings..filing') || [];
+        
+        res.json({
+          success: true,
+          data: {
+            company: company.length > 0 ? company[0] : null,
+            officers: officers,
+            beneficialOwners: beneficialOwners,
+            filings: filings,
+            counts: {
+              officers: officers.length,
+              beneficialOwners: beneficialOwners.length,
+              filings: filings.length
+            }
+          },
+          jurisdiction_code: jurisdiction_code,
+          company_number: company_number
+        });
+      } catch (error) {
+        console.error('Error parsing response:', error);
+        res.status(500).json({
+          success: false,
+          message: 'Error processing API response',
+          error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+      }
+    });
+  });
+  
+  // Handle request errors
+  ocRequest.on('error', (error) => {
+    console.error('Error making request to API:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error connecting to API',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  });
+  
+  // Send the request
+  ocRequest.end();
+});
+
+// GET endpoint - Search officers using OpenCorporates API
+app.get('/api/officers/search', (req, res) => {
+  // Validate required parameters
+  if (!req.query.q) {
+    return res.status(400).json({
+      success: false,
+      message: 'Missing required parameter: q (query) is required'
+    });
+  }
+  
+  // Get API token and URL from environment variables
+  const apiToken = process.env.OPEN_CORPORATES_KEY;
+  const apiUrl = process.env.OPEN_CORPORATES_URL || 'https://api.opencorporates.com/';
+  
+  if (!apiToken) {
+    return res.status(500).json({
+      success: false,
+      message: 'API token not configured. Please set OPEN_CORPORATES_KEY in .env file'
+    });
+  }
+  
+  // Build query parameters - pass through all user query params
+  const params = buildOpenCorporatesParams(req.query, apiToken);
+  const path = `/v0.4/officers/search?${params.toString()}`;
+  
+  // Parse the base URL to get hostname
+  const urlObj = new URL(apiUrl);
+  
+  // Set up HTTPS request options
+  const options = {
+    hostname: urlObj.hostname,
+    port: urlObj.port || 443,
+    path: path,
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  };
+  
+  // Make the request to OpenCorporates API
+  const ocRequest = https.request(options, (ocResponse) => {
+    let data = '';
+    
+    // Collect response data
+    ocResponse.on('data', (chunk) => {
+      data += chunk;
+    });
+    
+    // Process response when complete
+    ocResponse.on('end', () => {
+      try {
+        const payload = JSON.parse(data);
+        
+        // Remove opencorporates_url from entire payload once (before extraction for efficiency)
+        removeOpenCorporatesUrl(payload);
+        
+        // Use JSONPath to extract officers (now from cleaned payload)
+        const officers = jp.query(payload, '$.results.officers..officer');
+        
+        res.json({
+          success: true,
+          count: officers.length,
+          data: officers,
+          query: req.query.q
+        });
+      } catch (error) {
+        console.error('Error parsing response:', error);
+        res.status(500).json({
+          success: false,
+          message: 'Error processing API response',
+          error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+      }
+    });
+  });
+  
+  // Handle request errors
+  ocRequest.on('error', (error) => {
+    console.error('Error making request to API:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error connecting to API',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  });
+  
+  // Send the request
+  ocRequest.end();
+});
+
+// GET endpoint - Fetch a specific officer by ID
+app.get('/api/officers/:officer_id', (req, res) => {
+  const { officer_id } = req.params;
+  
+  // Validate required parameters
+  if (!officer_id) {
+    return res.status(400).json({
+      success: false,
+      message: 'Missing required parameter: officer_id is required'
+    });
+  }
+  
+  // Get API token and URL from environment variables
+  const apiToken = process.env.OPEN_CORPORATES_KEY;
+  const apiUrl = process.env.OPEN_CORPORATES_URL || 'https://api.opencorporates.com/';
+  
+  if (!apiToken) {
+    return res.status(500).json({
+      success: false,
+      message: 'API token not configured. Please set OPEN_CORPORATES_KEY in .env file'
+    });
+  }
+  
+  // Build query parameters - pass through all user query params
+  const params = buildOpenCorporatesParams(req.query, apiToken);
+  const path = `/v0.4/officers/${officer_id}?${params.toString()}`;
   
   // Parse the base URL to get hostname
   const urlObj = new URL(apiUrl);
@@ -289,38 +415,34 @@ app.get('/api/companies/:jurisdiction_code/:company_number', (req, res) => {
         if (ocResponse.statusCode !== 200) {
           return res.status(ocResponse.statusCode).json({
             success: false,
-            message: 'Error from OpenCorporates API',
+            message: 'Error from API',
             data: payload
           });
         }
         
-        // Extract company details using JSONPath
-        const company = jp.query(payload, '$.results.company');
-        const officers = jp.query(payload, '$.results.company.officers..officer') || [];
-        const beneficialOwners = jp.query(payload, '$.results.company.ultimate_beneficial_owners..ultimate_beneficial_owner') || [];
-        const filings = jp.query(payload, '$.results.company.filings..filing') || [];
+        // Remove opencorporates_url from entire payload once (before extraction for efficiency)
+        removeOpenCorporatesUrl(payload);
+        
+        // Extract officer details using JSONPath (now from cleaned payload)
+        const officer = jp.query(payload, '$.results.officer');
+        const companies = jp.query(payload, '$.results.officer.relationships..relationship') || [];
         
         res.json({
           success: true,
           data: {
-            company: company.length > 0 ? company[0] : null,
-            officers: officers,
-            beneficialOwners: beneficialOwners,
-            filings: filings,
+            officer: officer.length > 0 ? officer[0] : null,
+            companies: companies,
             counts: {
-              officers: officers.length,
-              beneficialOwners: beneficialOwners.length,
-              filings: filings.length
+              companies: companies.length
             }
           },
-          jurisdiction_code: jurisdiction_code,
-          company_number: company_number
+          officer_id: officer_id
         });
       } catch (error) {
-        console.error('Error parsing OpenCorporates response:', error);
+        console.error('Error parsing response:', error);
         res.status(500).json({
           success: false,
-          message: 'Error processing OpenCorporates API response',
+          message: 'Error processing API response',
           error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
       }
@@ -329,115 +451,10 @@ app.get('/api/companies/:jurisdiction_code/:company_number', (req, res) => {
   
   // Handle request errors
   ocRequest.on('error', (error) => {
-    console.error('Error making request to OpenCorporates API:', error);
+    console.error('Error making request to API:', error);
     res.status(500).json({
       success: false,
-      message: 'Error connecting to OpenCorporates API',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  });
-  
-  // Send the request
-  ocRequest.end();
-});
-
-// GET endpoint - Search officers using OpenCorporates API
-app.get('/api/officers/search', (req, res) => {
-  const { q, jurisdiction_code } = req.query;
-  
-  // Validate required parameters
-  if (!q) {
-    return res.status(400).json({
-      success: false,
-      message: 'Missing required parameter: q (query) is required'
-    });
-  }
-  
-  // Get API token and URL from environment variables
-  const apiToken = process.env.OPEN_CORPORATES_KEY;
-  const apiUrl = process.env.OPEN_CORPORATES_URL || 'https://api.opencorporates.com/';
-  
-  if (!apiToken) {
-    return res.status(500).json({
-      success: false,
-      message: 'OpenCorporates API token not configured. Please set OPEN_CORPORATES_KEY in .env file'
-    });
-  }
-  
-  // Build the path with query parameters
-  const params = new URLSearchParams({
-    q: q,
-    api_token: apiToken
-  });
-  
-  // Add jurisdiction_code if provided
-  if (jurisdiction_code) {
-    params.append('jurisdiction_code', jurisdiction_code);
-  }
-  
-  const path = `/v0.4/officers/search?${params.toString()}`;
-  
-  // Parse the base URL to get hostname
-  const urlObj = new URL(apiUrl);
-  
-  // Set up HTTPS request options
-  const options = {
-    hostname: urlObj.hostname,
-    port: urlObj.port || 443,
-    path: path,
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json'
-    }
-  };
-  
-  // Make the request to OpenCorporates API
-  const ocRequest = https.request(options, (ocResponse) => {
-    let data = '';
-    
-    // Collect response data
-    ocResponse.on('data', (chunk) => {
-      data += chunk;
-    });
-    
-    // Process response when complete
-    ocResponse.on('end', () => {
-      try {
-        const payload = JSON.parse(data);
-        
-        // Use JSONPath to extract officers
-        const officers = jp.query(payload, '$.results.officers..officer');
-        
-        const response = {
-          success: true,
-          count: officers.length,
-          data: officers,
-          query: q
-        };
-        
-        // Include jurisdiction_code in response if provided
-        if (jurisdiction_code) {
-          response.jurisdiction_code = jurisdiction_code;
-        }
-        
-        res.json(response);
-      } catch (error) {
-        console.error('Error parsing OpenCorporates response:', error);
-        res.status(500).json({
-          success: false,
-          message: 'Error processing OpenCorporates API response',
-          error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
-      }
-    });
-  });
-  
-  // Handle request errors
-  ocRequest.on('error', (error) => {
-    console.error('Error making request to OpenCorporates API:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error connecting to OpenCorporates API',
+      message: 'Error connecting to API',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   });
@@ -464,9 +481,14 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
-  console.log(`Health check: http://localhost:${PORT}/api/health`);
-});
+// Export app for Lambda, or start server if running locally
+if (require.main === module) {
+  // Running directly (local development)
+  app.listen(PORT, () => {
+    console.log(`Server is running on http://localhost:${PORT}`);
+  });
+}
+
+// Export app for Lambda handler
+module.exports = app;
 
