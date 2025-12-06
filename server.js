@@ -491,4 +491,3 @@ if (require.main === module) {
 
 // Export app for Lambda handler
 module.exports = app;
-

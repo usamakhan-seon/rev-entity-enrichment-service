@@ -147,4 +147,3 @@ serverless remove
 ### Environment Variables Not Working
 - Check AWS Lambda console → Configuration → Environment variables
 - Verify parameter names match in serverless.yml
-

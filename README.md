@@ -10,7 +10,8 @@ A Node.js REST API service that provides entity enrichment capabilities through 
 - Automatic data sanitization (removes sensitive URLs)
 - CORS enabled for cross-origin requests
 - Environment-based configuration
-- AWS Lambda deployment ready
+- AWS Lambda + API Gateway (REST API) deployment ready
+- API key authentication support
 
 ## Prerequisites
 
@@ -49,13 +50,13 @@ GET /api/companies/search
 ```
 
 **Query Parameters:**
-- `q` (required) - Search query string
+- `name` (required) - Search query string (company name)
 - `jurisdiction_code` (optional) - Filter by jurisdiction
 - Additional parameters supported by the external API
 
 **Example:**
 ```bash
-curl "http://localhost:3000/api/companies/search?q=Apple&jurisdiction_code=us"
+curl "http://localhost:3000/api/companies/search?name=Apple&jurisdiction_code=us"
 ```
 
 #### Get Company Details
@@ -80,13 +81,13 @@ GET /api/officers/search
 ```
 
 **Query Parameters:**
-- `q` (required) - Search query string
+- `name` (required) - Search query string (officer name)
 - `jurisdiction_code` (optional) - Filter by jurisdiction
 - Additional parameters supported by the external API
 
 **Example:**
 ```bash
-curl "http://localhost:3000/api/officers/search?q=John+Doe&jurisdiction_code=us"
+curl "http://localhost:3000/api/officers/search?name=John+Doe&jurisdiction_code=us"
 ```
 
 #### Get Officer Details
@@ -111,7 +112,28 @@ All endpoints return JSON responses in the following format:
 {
   "success": true,
   "data": [...],
-  "count": 10
+  "count": 10,
+  "query": "search-term"
+}
+```
+
+**Company Details Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "company": {...},
+    "officers": [...],
+    "beneficialOwners": [...],
+    "filings": [...],
+    "counts": {
+      "officers": 5,
+      "beneficialOwners": 2,
+      "filings": 10
+    }
+  },
+  "jurisdiction_code": "us",
+  "company_number": "12345678"
 }
 ```
 
@@ -139,7 +161,7 @@ The server will run on `http://localhost:3000` by default.
 
 ## Deployment
 
-This service is configured for deployment to AWS Lambda using the Serverless Framework.
+This service is configured for deployment to AWS Lambda + API Gateway (REST API) using the Serverless Framework.
 
 ### Prerequisites for Deployment
 
@@ -172,6 +194,22 @@ npm run deploy:prod
 4. Remove deployment:
 ```bash
 npm run remove
+```
+
+**Note:** When redeploying with minor code changes, your API endpoint URL will remain the same. The URL only changes if you deploy to a different stage or make major infrastructure changes.
+
+### API Key Authentication
+
+After deployment, configure API keys in AWS API Gateway Console:
+1. Create a Usage Plan
+2. Create API Keys and associate them with the Usage Plan
+3. Enable "API Key Required" on your API routes
+4. Deploy the API to apply changes
+
+Clients must include the API key in requests:
+```bash
+curl -H "x-api-key: your-api-key-value" \
+  "https://your-api-id.execute-api.region.amazonaws.com/dev/api/companies/search?name=Apple"
 ```
 
 See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed deployment instructions.
@@ -225,4 +263,3 @@ ISC
 ## Support
 
 For deployment issues, refer to [DEPLOYMENT.md](./DEPLOYMENT.md).
-
