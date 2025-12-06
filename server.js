@@ -65,7 +65,7 @@ function removeOpenCorporatesUrl(data) {
 // GET endpoint - Search companies using OpenCorporates API
 app.get('/api/companies/search', (req, res) => {
   // Validate required parameters
-  if (!req.query.q) {
+  if (!req.query.name) {
     return res.status(400).json({
       success: false,
       message: 'Missing required parameter: q (query) is required'
@@ -79,7 +79,7 @@ app.get('/api/companies/search', (req, res) => {
   if (!apiToken) {
     return res.status(500).json({
       success: false,
-      message: 'API token not configured. Please set OPEN_CORPORATES_KEY in .env file'
+      message: 'API token not configured. Please contact support team.'
     });
   }
   
@@ -125,7 +125,7 @@ app.get('/api/companies/search', (req, res) => {
           success: true,
           count: companies.length,
           data: companies,
-          query: req.query.q
+          query: req.query.name
         });
       } catch (error) {
         console.error('Error parsing response:', error);
@@ -171,7 +171,7 @@ app.get('/api/companies/:jurisdiction_code/:company_number', (req, res) => {
   if (!apiToken) {
     return res.status(500).json({
       success: false,
-      message: 'API token not configured. Please set OPEN_CORPORATES_KEY in .env file'
+      message: 'API token not configured. Please contact support team.'
     });
   }
   
@@ -269,10 +269,10 @@ app.get('/api/companies/:jurisdiction_code/:company_number', (req, res) => {
 // GET endpoint - Search officers using OpenCorporates API
 app.get('/api/person/search', (req, res) => {
   // Validate required parameters
-  if (!req.query.q) {
+  if (!req.query.name) {
     return res.status(400).json({
       success: false,
-      message: 'Missing required parameter: q (query) is required'
+      message: 'Missing required parameter: Name is required'
     });
   }
   
@@ -283,7 +283,7 @@ app.get('/api/person/search', (req, res) => {
   if (!apiToken) {
     return res.status(500).json({
       success: false,
-      message: 'API token not configured. Please set OPEN_CORPORATES_KEY in .env file'
+      message: 'API token not configured. Please contact support team.'
     });
   }
   
@@ -329,7 +329,7 @@ app.get('/api/person/search', (req, res) => {
           success: true,
           count: officers.length,
           data: officers,
-          query: req.query.q
+          query: req.query.name
         });
       } catch (error) {
         console.error('Error parsing response:', error);
@@ -375,7 +375,7 @@ app.get('/api/person/:officer_id', (req, res) => {
   if (!apiToken) {
     return res.status(500).json({
       success: false,
-      message: 'API token not configured. Please set OPEN_CORPORATES_KEY in .env file'
+      message: 'API token not configured. Please contact support team.'
     });
   }
   
