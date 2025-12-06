@@ -13,19 +13,19 @@ provider:
     OPEN_CORPORATES_URL: ${env:OPEN_CORPORATES_URL}
     OPEN_CORPORATES_KEY: ${env:OPEN_CORPORATES_KEY}
     NODE_ENV: production
-  httpApi:
-    cors: true
 
 functions:
   api:
     handler: lambda.handler
     events:
-      - httpApi:
+      - http:
           path: /{proxy+}
           method: ANY
-      - httpApi:
+          cors: true
+      - http:
           path: /
           method: ANY
+          cors: true
 
 plugins:
   - serverless-offline
