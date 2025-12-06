@@ -267,7 +267,7 @@ app.get('/api/companies/:jurisdiction_code/:company_number', (req, res) => {
 });
 
 // GET endpoint - Search officers using OpenCorporates API
-app.get('/api/officers/search', (req, res) => {
+app.get('/api/person/search', (req, res) => {
   // Validate required parameters
   if (!req.query.q) {
     return res.status(400).json({
@@ -357,7 +357,7 @@ app.get('/api/officers/search', (req, res) => {
 });
 
 // GET endpoint - Fetch a specific officer by ID
-app.get('/api/officers/:officer_id', (req, res) => {
+app.get('/api/person/:officer_id', (req, res) => {
   const { officer_id } = req.params;
   
   // Validate required parameters
