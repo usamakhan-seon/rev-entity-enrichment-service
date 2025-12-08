@@ -5,8 +5,8 @@ frameworkVersion: '3'
 provider:
   name: aws
   runtime: nodejs18.x
-  region: eu-north-1  # Change to your preferred region
-  stage: ${opt:stage, 'dev'}
+  region: eu-north-1
+  stage: ${opt:stage, 'test'}
   memorySize: 512
   timeout: 30
   environment:
