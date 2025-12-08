@@ -12,18 +12,22 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Helper function to build query parameters for OpenCorporates API
+// Helper function to build query parameters for API
 function buildOpenCorporatesParams(userQuery, apiToken) {
   const params = new URLSearchParams();
   
-  // Add all user-provided query parameters
+  const excludedParams = ['page', 'per_page', 'perPage', 'limit', 'offset'];
+  
   for (const [key, value] of Object.entries(userQuery)) {
+    if (excludedParams.includes(key.toLowerCase())) {
+      continue;
+    }
+    
     if (value !== undefined && value !== null && value !== '') {
       params.append(key, value);
     }
   }
   
-  // Always add API token (will override if user somehow provided it)
   params.set('api_token', apiToken);
   
   return params;
@@ -35,7 +39,6 @@ function removeOpenCorporatesUrl(data) {
     return data;
   }
   
-  // Handle arrays - process each element
   if (Array.isArray(data)) {
     for (let i = 0; i < data.length; i++) {
       data[i] = removeOpenCorporatesUrl(data[i]);
@@ -43,13 +46,10 @@ function removeOpenCorporatesUrl(data) {
     return data;
   }
   
-  // Handle objects - mutate in-place for better performance
   if (typeof data === 'object') {
-    // Delete opencorporates_url if it exists
     if ('opencorporates_url' in data) {
       delete data.opencorporates_url;
     }
-    // Recursively process all properties
     for (const key in data) {
       if (data.hasOwnProperty(key)) {
         data[key] = removeOpenCorporatesUrl(data[key]);
@@ -58,13 +58,11 @@ function removeOpenCorporatesUrl(data) {
     return data;
   }
   
-  // Return primitive values as-is
   return data;
 }
 
-// GET endpoint - Search companies using OpenCorporates API
+// GET endpoint - Search companies using API
 app.get('/api/companies/search', (req, res) => {
-  // Validate required parameters
   if (!req.query.name) {
     return res.status(400).json({
       success: false,
@@ -72,7 +70,6 @@ app.get('/api/companies/search', (req, res) => {
     });
   }
   
-  // Get API token and URL from environment variables
   const apiToken = process.env.OPEN_CORPORATES_KEY;
   const apiUrl = process.env.OPEN_CORPORATES_URL || 'https://api.opencorporates.com/';
   
@@ -83,14 +80,11 @@ app.get('/api/companies/search', (req, res) => {
     });
   }
   
-  // Build query parameters - pass through all user query params
   const params = buildOpenCorporatesParams(req.query, apiToken);
   const path = `/v0.4/companies/search?${params.toString()}`;
   
-  // Parse the base URL to get hostname
   const urlObj = new URL(apiUrl);
   
-  // Set up HTTPS request options
   const options = {
     hostname: urlObj.hostname,
     port: urlObj.port || 443,
@@ -101,24 +95,19 @@ app.get('/api/companies/search', (req, res) => {
     }
   };
   
-  // Make the request to OpenCorporates API
   const ocRequest = https.request(options, (ocResponse) => {
     let data = '';
     
-    // Collect response data
     ocResponse.on('data', (chunk) => {
       data += chunk;
     });
     
-    // Process response when complete
     ocResponse.on('end', () => {
       try {
         const payload = JSON.parse(data);
         
-        // Remove opencorporates_url from entire payload once (before extraction for efficiency)
         removeOpenCorporatesUrl(payload);
         
-        // Use JSONPath to extract companies (now from cleaned payload)
         const companies = jp.query(payload, '$.results.companies..company');
         
         res.json({
@@ -138,7 +127,6 @@ app.get('/api/companies/search', (req, res) => {
     });
   });
   
-  // Handle request errors
   ocRequest.on('error', (error) => {
     console.error('Error making request to API:', error);
     res.status(500).json({
@@ -148,7 +136,6 @@ app.get('/api/companies/search', (req, res) => {
     });
   });
   
-  // Send the request
   ocRequest.end();
 });
 
@@ -156,7 +143,6 @@ app.get('/api/companies/search', (req, res) => {
 app.get('/api/companies/:jurisdiction_code/:company_number', (req, res) => {
   const { jurisdiction_code, company_number } = req.params;
   
-  // Validate required parameters
   if (!jurisdiction_code || !company_number) {
     return res.status(400).json({
       success: false,
@@ -164,7 +150,6 @@ app.get('/api/companies/:jurisdiction_code/:company_number', (req, res) => {
     });
   }
   
-  // Get API token and URL from environment variables
   const apiToken = process.env.OPEN_CORPORATES_KEY;
   const apiUrl = process.env.OPEN_CORPORATES_URL || 'https://api.opencorporates.com/';
   
@@ -175,14 +160,11 @@ app.get('/api/companies/:jurisdiction_code/:company_number', (req, res) => {
     });
   }
   
-  // Build query parameters - pass through all user query params
   const params = buildOpenCorporatesParams(req.query, apiToken);
   const path = `/v0.4/companies/${jurisdiction_code}/${company_number}?${params.toString()}`;
   
-  // Parse the base URL to get hostname
   const urlObj = new URL(apiUrl);
   
-  // Set up HTTPS request options
   const options = {
     hostname: urlObj.hostname,
     port: urlObj.port || 443,
@@ -193,21 +175,17 @@ app.get('/api/companies/:jurisdiction_code/:company_number', (req, res) => {
     }
   };
   
-  // Make the request to API
   const ocRequest = https.request(options, (ocResponse) => {
     let data = '';
     
-    // Collect response data
     ocResponse.on('data', (chunk) => {
       data += chunk;
     });
     
-    // Process response when complete
     ocResponse.on('end', () => {
       try {
         const payload = JSON.parse(data);
         
-        // Check if the response indicates an error
         if (ocResponse.statusCode !== 200) {
           return res.status(ocResponse.statusCode).json({
             success: false,
@@ -216,10 +194,8 @@ app.get('/api/companies/:jurisdiction_code/:company_number', (req, res) => {
           });
         }
         
-        // Remove opencorporates_url from entire payload once (before extraction for efficiency)
         removeOpenCorporatesUrl(payload);
         
-        // Extract company details using JSONPath (now from cleaned payload)
         const company = jp.query(payload, '$.results.company');
         const officers = jp.query(payload, '$.results.company.officers..officer') || [];
         const beneficialOwners = jp.query(payload, '$.results.company.ultimate_beneficial_owners..ultimate_beneficial_owner') || [];
@@ -252,7 +228,6 @@ app.get('/api/companies/:jurisdiction_code/:company_number', (req, res) => {
     });
   });
   
-  // Handle request errors
   ocRequest.on('error', (error) => {
     console.error('Error making request to API:', error);
     res.status(500).json({
@@ -262,21 +237,18 @@ app.get('/api/companies/:jurisdiction_code/:company_number', (req, res) => {
     });
   });
   
-  // Send the request
   ocRequest.end();
 });
 
-// GET endpoint - Search officers using OpenCorporates API
+// GET endpoint - Search people using API
 app.get('/api/person/search', (req, res) => {
-  // Validate required parameters
   if (!req.query.name) {
     return res.status(400).json({
       success: false,
-      message: 'Missing required parameter: Name is required'
+      message: 'Missing required parameter: name is required'
     });
   }
   
-  // Get API token and URL from environment variables
   const apiToken = process.env.OPEN_CORPORATES_KEY;
   const apiUrl = process.env.OPEN_CORPORATES_URL || 'https://api.opencorporates.com/';
   
@@ -287,14 +259,11 @@ app.get('/api/person/search', (req, res) => {
     });
   }
   
-  // Build query parameters - pass through all user query params
   const params = buildOpenCorporatesParams(req.query, apiToken);
   const path = `/v0.4/officers/search?${params.toString()}`;
   
-  // Parse the base URL to get hostname
   const urlObj = new URL(apiUrl);
   
-  // Set up HTTPS request options
   const options = {
     hostname: urlObj.hostname,
     port: urlObj.port || 443,
@@ -305,24 +274,19 @@ app.get('/api/person/search', (req, res) => {
     }
   };
   
-  // Make the request to OpenCorporates API
   const ocRequest = https.request(options, (ocResponse) => {
     let data = '';
     
-    // Collect response data
     ocResponse.on('data', (chunk) => {
       data += chunk;
     });
     
-    // Process response when complete
     ocResponse.on('end', () => {
       try {
         const payload = JSON.parse(data);
         
-        // Remove opencorporates_url from entire payload once (before extraction for efficiency)
         removeOpenCorporatesUrl(payload);
         
-        // Use JSONPath to extract officers (now from cleaned payload)
         const officers = jp.query(payload, '$.results.officers..officer');
         
         res.json({
@@ -342,7 +306,6 @@ app.get('/api/person/search', (req, res) => {
     });
   });
   
-  // Handle request errors
   ocRequest.on('error', (error) => {
     console.error('Error making request to API:', error);
     res.status(500).json({
@@ -352,7 +315,6 @@ app.get('/api/person/search', (req, res) => {
     });
   });
   
-  // Send the request
   ocRequest.end();
 });
 
@@ -360,7 +322,6 @@ app.get('/api/person/search', (req, res) => {
 app.get('/api/person/:officer_id', (req, res) => {
   const { officer_id } = req.params;
   
-  // Validate required parameters
   if (!officer_id) {
     return res.status(400).json({
       success: false,
@@ -368,7 +329,6 @@ app.get('/api/person/:officer_id', (req, res) => {
     });
   }
   
-  // Get API token and URL from environment variables
   const apiToken = process.env.OPEN_CORPORATES_KEY;
   const apiUrl = process.env.OPEN_CORPORATES_URL || 'https://api.opencorporates.com/';
   
@@ -379,14 +339,11 @@ app.get('/api/person/:officer_id', (req, res) => {
     });
   }
   
-  // Build query parameters - pass through all user query params
   const params = buildOpenCorporatesParams(req.query, apiToken);
   const path = `/v0.4/officers/${officer_id}?${params.toString()}`;
   
-  // Parse the base URL to get hostname
   const urlObj = new URL(apiUrl);
   
-  // Set up HTTPS request options
   const options = {
     hostname: urlObj.hostname,
     port: urlObj.port || 443,
@@ -397,21 +354,17 @@ app.get('/api/person/:officer_id', (req, res) => {
     }
   };
   
-  // Make the request to OpenCorporates API
   const ocRequest = https.request(options, (ocResponse) => {
     let data = '';
     
-    // Collect response data
     ocResponse.on('data', (chunk) => {
       data += chunk;
     });
     
-    // Process response when complete
     ocResponse.on('end', () => {
       try {
         const payload = JSON.parse(data);
         
-        // Check if the response indicates an error
         if (ocResponse.statusCode !== 200) {
           return res.status(ocResponse.statusCode).json({
             success: false,
@@ -420,10 +373,8 @@ app.get('/api/person/:officer_id', (req, res) => {
           });
         }
         
-        // Remove opencorporates_url from entire payload once (before extraction for efficiency)
         removeOpenCorporatesUrl(payload);
         
-        // Extract officer details using JSONPath (now from cleaned payload)
         const officer = jp.query(payload, '$.results.officer');
         const companies = jp.query(payload, '$.results.officer.relationships..relationship') || [];
         
@@ -449,7 +400,6 @@ app.get('/api/person/:officer_id', (req, res) => {
     });
   });
   
-  // Handle request errors
   ocRequest.on('error', (error) => {
     console.error('Error making request to API:', error);
     res.status(500).json({
@@ -459,7 +409,6 @@ app.get('/api/person/:officer_id', (req, res) => {
     });
   });
   
-  // Send the request
   ocRequest.end();
 });
 
@@ -483,7 +432,6 @@ app.use((err, req, res, next) => {
 
 // Export app for Lambda, or start server if running locally
 if (require.main === module) {
-  // Running directly (local development)
   app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
   });
